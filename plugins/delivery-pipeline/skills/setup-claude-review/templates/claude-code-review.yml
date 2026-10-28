@@ -82,7 +82,7 @@ jobs:
       - name: Run lint and unit tests
         run: |
           mkdir -p "$RUNNER_TEMP/checks"
-          if { $INSTALL_CMD && $CHECK_CMD; } > "$RUNNER_TEMP/checks/checks.log" 2>&1; then
+          if { bash -c "$INSTALL_CMD" && bash -c "$CHECK_CMD"; } > "$RUNNER_TEMP/checks/checks.log" 2>&1; then
             echo pass > "$RUNNER_TEMP/checks/checks-result.txt"
           else
             echo "exit code: $?" >> "$RUNNER_TEMP/checks/checks.log"
@@ -229,8 +229,9 @@ jobs:
             - Never modify files, and never commit or push.
 
       # gh pr review can't pin a review to a commit, so an approval submitted after
-      # a new push would land on code nobody reviewed. Dismiss it in that case.
-      - name: Dismiss the approval if the PR head moved during the review
+      # a new push would land on code nobody reviewed. If the head moved, dismiss
+      # every claude[bot] approval that isn't on the current head.
+      - name: Dismiss stale approvals if the PR head moved during the review
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -240,7 +241,7 @@ jobs:
           current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
           [ "$current" = "$HEAD_SHA" ] && exit 0
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-            --jq ".[] | select(.user.login == \"claude[bot]\" and .state == \"APPROVED\" and .commit_id != \"$HEAD_SHA\" and (.body | contains(\"Reviewed head: $HEAD_SHA\"))) | .id" |
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .state == \"APPROVED\" and .commit_id != \"$current\") | .id" |
           while read -r id; do
             gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews/$id/dismissals" \
               -f message="PR head moved to $current during the review of $HEAD_SHA; a new review must be requested." -f event=DISMISS \

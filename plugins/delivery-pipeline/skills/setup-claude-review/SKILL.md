@@ -51,7 +51,7 @@ Never add write tools, `Bash(*)`, or secrets to the `checks` job.
             with:
               node-version-file: .nvmrc
     ```
-  - The commands run as `$INSTALL_CMD && $CHECK_CMD` without a shell re-parse, so a command containing `&&` or quotes won't work. In that case add a package script or make the step `run: bash -c "$CHECK_CMD"`.
+  - Each command runs through `bash -c`, so `&&`, pipes and quotes work, e.g. `npm run lint && npm test -- --run`.
 - Keep the review prompt generic. Project rules come from the repo's CLAUDE.md at review time, so don't copy them into the workflow.
 - If `claude.yml` already exists, keep its customisations. Just make sure every `@claude` condition also has `!contains(<body>, '@claude review')`, so that the two workflows never both answer one comment.
 - Leave no `__` placeholders. Check that the YAML parses, for example with `python3 -c "import yaml,sys;yaml.safe_load(open(sys.argv[1]))" <file>`.
