@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "gorzko-plugins",
+  "description": "Personal Claude Code plugins.",
+  "owner": { "name": "gorzko" },
+  "plugins": [
+    {
+      "name": "delivery-pipeline",
+      "description": "Autonomous delivery pipeline for a GitHub repo: an orchestrator session that plans, delegates to worker sessions and drives PRs to owner UAT, plus a skill that installs a formal Claude PR-review workflow.",
+      "source": "./plugins/delivery-pipeline",
+      "category": "productivity"
+    }
+  ]
+}
