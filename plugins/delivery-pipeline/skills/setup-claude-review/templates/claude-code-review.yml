@@ -229,8 +229,8 @@ jobs:
             - Never modify files, and never commit or push.
 
       # gh pr review can't pin a review to a commit, so an approval submitted after
-      # a new push would land on code nobody reviewed. If the head moved, dismiss
-      # every claude[bot] approval that isn't on the current head.
+      # a new push lands on the new head, which nobody reviewed. If the head moved,
+      # dismiss every claude[bot] approval: the new head needs its own review anyway.
       - name: Dismiss stale approvals if the PR head moved during the review
         if: always()
         env:
@@ -241,9 +241,9 @@ jobs:
           current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
           [ "$current" = "$HEAD_SHA" ] && exit 0
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-            --jq ".[] | select(.user.login == \"claude[bot]\" and .state == \"APPROVED\" and .commit_id != \"$current\") | .id" |
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .state == \"APPROVED\") | .id" |
           while read -r id; do
             gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews/$id/dismissals" \
               -f message="PR head moved to $current during the review of $HEAD_SHA; a new review must be requested." -f event=DISMISS \
-              || echo "::warning::Could not dismiss stale approval $id; the orchestrator ignores it because its Reviewed head is not the PR head."
+              || echo "::warning::Could not dismiss approval $id; orchestrators still ignore it because its Reviewed head is not the PR head."
           done
