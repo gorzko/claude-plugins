@@ -17,7 +17,7 @@ The templates are in `templates/`, next to this file:
 
 ## Security model (keep it intact when adapting)
 - **`gate` job:** refuses fork PRs. Comment triggers count only from OWNER, MEMBER or COLLABORATOR.
-- **`checks` job:** the only place PR code runs. It gets `contents: read`, no secrets, no OIDC, and `persist-credentials: false`. It hands over only a 400-line log artifact.
+- **`checks` job:** the only place PR code runs. It gets `contents: read`, no secrets, no OIDC, and `persist-credentials: false`. It hands over only its log, which the review job caps and treats as data. Pass/fail comes from the step's exit code (a job output), never from a file the PR code could write.
 - **`review` job:** never executes PR code.
   - Claude runs in a checkout of the default branch, so CLAUDE.md, `.claude/` settings and hooks are trusted. The PR head is checked out read-only into `./pr`.
   - Context comes only from trusted authors.

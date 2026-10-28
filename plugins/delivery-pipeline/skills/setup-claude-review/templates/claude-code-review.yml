@@ -60,13 +60,17 @@ jobs:
           echo "base_ref=$(jq -r .baseRefName <<<"$info")" >> "$GITHUB_OUTPUT"
 
   # Runs the PR's own code: read-only clone access (removed after checkout by
-  # persist-credentials: false), no secrets, no OIDC token.
+  # persist-credentials: false), no secrets, no OIDC token. The PR code can write
+  # anything in this job, so only the step's exit code (`result`) is trusted; the
+  # log is handed over as data.
   checks:
     needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      result: ${{ steps.run.outcome }}
     concurrency:
       group: claude-review-checks-${{ needs.gate.outputs.pr_number }}
       cancel-in-progress: true
@@ -80,23 +84,22 @@ jobs:
       # __TOOLCHAIN_SETUP__ (e.g. actions/setup-node or actions/setup-python; delete this line if the runner's defaults suffice)
 
       - name: Run lint and unit tests
+        id: run
+        continue-on-error: true
         run: |
           mkdir -p "$RUNNER_TEMP/checks"
-          if { bash -c "$INSTALL_CMD" && bash -c "$CHECK_CMD"; } > "$RUNNER_TEMP/checks/checks.log" 2>&1; then
-            echo pass > "$RUNNER_TEMP/checks/checks-result.txt"
-          else
-            echo "exit code: $?" >> "$RUNNER_TEMP/checks/checks.log"
-            echo fail > "$RUNNER_TEMP/checks/checks-result.txt"
-          fi
-          # Keep only the tail: enough to diagnose failures, too little to flood the review.
-          tail -n 400 "$RUNNER_TEMP/checks/checks.log" > "$RUNNER_TEMP/checks/checks.tail"
-          mv "$RUNNER_TEMP/checks/checks.tail" "$RUNNER_TEMP/checks/checks.log"
+          set +e
+          { bash -c "$INSTALL_CMD" && bash -c "$CHECK_CMD"; } > "$RUNNER_TEMP/checks/checks.log" 2>&1
+          code=$?
+          echo "exit code: $code" >> "$RUNNER_TEMP/checks/checks.log"
+          exit $code
 
       - name: Hand over the log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: review-checks
-          path: ${{ runner.temp }}/checks/
+          path: ${{ runner.temp }}/checks/checks.log
           retention-days: 3
 
   review:
@@ -132,11 +135,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the check results
+      # The log was written by PR code: keep only the tail of checks.log, as data.
+      # Pass/fail comes from the checks job's exit code, not from the artifact.
+      - name: Fetch the check log
         uses: actions/download-artifact@v4
         with:
           name: review-checks
-          path: review-context
+          path: ${{ runner.temp }}/checks-artifact
+
+      - name: Record the check result
+        env:
+          CHECKS_RESULT: ${{ needs.checks.outputs.result }}
+        run: |
+          mkdir -p review-context
+          if [ -f "$RUNNER_TEMP/checks-artifact/checks.log" ]; then
+            tail -n 400 "$RUNNER_TEMP/checks-artifact/checks.log" | head -c 100000 > review-context/checks.log
+          else
+            echo "(no check log)" > review-context/checks.log
+          fi
+          if [ "$CHECKS_RESULT" = "success" ]; then echo pass; else echo fail; fi > review-context/checks-result.txt
 
       - name: Collect review context (trusted authors' comments only)
         env:
