@@ -141,6 +141,8 @@ jobs:
       - name: Collect review context (trusted authors' comments only)
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+          BASE_REF: ${{ needs.gate.outputs.base_ref }}
         run: |
           set -u
           out=review-context
@@ -149,13 +151,16 @@ jobs:
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --json number,title,body,author,baseRefName,headRefName,headRefOid,isDraft,closingIssuesReferences,commits \
             > "$out/pr.json"
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > "$out/diff.patch"
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only > "$out/changed-files.txt"
+          # Diff of exactly the commit under review (not the live PR head, which may have moved).
+          git -C pr diff "origin/$BASE_REF...$HEAD_SHA" > "$out/diff.patch"
+          git -C pr diff --name-only "origin/$BASE_REF...$HEAD_SHA" > "$out/changed-files.txt"
           : > "$out/linked-issues.md"
           for n in $(jq -r '.closingIssuesReferences[] | select(.repository.nameWithOwner == null or .repository.nameWithOwner == env.GITHUB_REPOSITORY) | .number' "$out/pr.json"); do
             {
-              gh issue view "$n" --repo "$GITHUB_REPOSITORY" --json number,title,body,author \
-                --jq '"# #\(.number) \(.title)\n\n\(.body)"' || echo "(issue #$n not readable)"
+              # Issue text only from trusted authors; otherwise just the number.
+              gh api "repos/$GITHUB_REPOSITORY/issues/$n" \
+                --jq "if (.author_association == \"OWNER\" or .author_association == \"MEMBER\" or .author_association == \"COLLABORATOR\") then \"# #\\(.number) \\(.title)\\n\\n\\(.body)\" else \"# #\\(.number) (opened by an untrusted author; text omitted)\" end" \
+                || echo "(issue #$n not readable)"
               echo; echo "## Comments (owner/members/collaborators)"
               gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$n/comments" \
                 --jq ".[] | $trusted | \"### \(.user.login)\n\(.body)\n\"" || true
@@ -219,5 +224,25 @@ jobs:
                 Checks: lint and unit tests <pass|fail> (from checks-result.txt)
               followed by a short summary: what the change does, the blocking findings (one line each), the nits count, and "Previous findings" on a re-review.
             - If `gh pr review --approve` or `--request-changes` is refused, submit the same body with --comment instead.
+            - Approvals are only meaningful for the reviewed head; a later step dismisses this approval automatically if the PR head moved while you were reviewing.
             - Never write "@claude" anywhere in comments or the review body.
             - Never modify files, and never commit or push.
+
+      # gh pr review can't pin a review to a commit, so an approval submitted after
+      # a new push would land on code nobody reviewed. Dismiss it in that case.
+      - name: Dismiss the approval if the PR head moved during the review
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          [ "$current" = "$HEAD_SHA" ] && exit 0
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .state == \"APPROVED\" and .commit_id != \"$HEAD_SHA\" and (.body | contains(\"Reviewed head: $HEAD_SHA\"))) | .id" |
+          while read -r id; do
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews/$id/dismissals" \
+              -f message="PR head moved to $current during the review of $HEAD_SHA; a new review must be requested." -f event=DISMISS \
+              || echo "::warning::Could not dismiss stale approval $id; the orchestrator ignores it because its Reviewed head is not the PR head."
+          done

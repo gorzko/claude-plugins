@@ -23,6 +23,8 @@ The templates are in `templates/`, next to this file:
   - Context comes only from trusted authors.
   - Claude's tools are limited to Read/Glob/Grep, inline comments, and `gh pr review <this PR> --repo <this repo>`.
 - **Concurrency:** set per job and per PR, so a later trigger cancels only the same PR's run.
+- **Pinned to the reviewed commit:** the diff is computed locally for the head SHA under review, linked-issue text is included only from trusted authors, and an approval is dismissed automatically if the PR head moved while the review ran.
+- **`claude.yml`:** only the owner, members and collaborators can summon `@claude` (author-association gate), and issue triggers fire on `opened` only.
 
 Never add write tools, `Bash(*)`, or secrets to the `checks` job.
 

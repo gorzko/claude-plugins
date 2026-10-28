@@ -1,6 +1,6 @@
 {
   "name": "delivery-pipeline",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Autonomous delivery pipeline for a GitHub repo: an orchestrator session that plans, delegates to worker sessions and drives PRs to owner UAT, plus a skill that installs a formal Claude PR-review workflow.",
   "author": {
     "name": "gorzko"
